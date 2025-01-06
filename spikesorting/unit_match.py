@@ -1,5 +1,6 @@
 import os
 import pickle
+import copy
 
 from glob import glob
 from pathlib import Path
@@ -345,50 +346,50 @@ def generate_um_params(param, waveforms):
     return param, clus_info
 
 
-def find_best_matches_across_sessions(score_matrix, session_switch, th=0.1, sel_units = None):
-    """
-    Find the best matching units across sessions.
+# def find_best_matches_across_sessions(score_matrix, session_switch, th=0.1, sel_units = None):
+#     """
+#     Find the best matching units across sessions.
 
-    Arguments:
-        score_matrix - ndarray (nUnits, nUnits)
-        session_switch - ndarray or list (session switch indices in # of units)
-        th - float, default 0.1 (minimum threshold for matching units)
+#     Arguments:
+#         score_matrix - ndarray (nUnits, nUnits)
+#         session_switch - ndarray or list (session switch indices in # of units)
+#         th - float, default 0.1 (minimum threshold for matching units)
 
-    Returns:
-        unit_probs - ndarray (nUnits, nSessions)
-        unit_paths - ndarray (nUnits, nSessions)
-    """
+#     Returns:
+#         unit_probs - ndarray (nUnits, nSessions)
+#         unit_paths - ndarray (nUnits, nSessions)
+#     """
     
-    sel_ci = session_switch
+#     sel_ci = session_switch
     
-    max_prob = np.max(np.stack((score_matrix, score_matrix.T), axis=2), axis=2)
+#     max_prob = np.max(np.stack((score_matrix, score_matrix.T), axis=2), axis=2)
 
-    sel_prob = max_prob[sel_ci[0]:sel_ci[-1], sel_ci[0]:sel_ci[-1]].copy()
-    unit_probs = np.zeros((sel_ci[1], len(sel_ci) - 2)) - 1
-    unit_paths = np.zeros((sel_ci[1], len(sel_ci) - 1),dtype=int) - 1
-    for u in range(sel_ci[1]):
-        session_id = 1 # session ID to be matched (session_id - 1, session_id)
-        session_prob = sel_prob[(sel_ci[session_id - 1]): sel_ci[session_id], sel_ci[session_id] : sel_ci[session_id + 1]]
-        # We essentially sort the units by the maximum probability of matching
-        matched_ids = np.unravel_index(np.argmax(session_prob), session_prob.shape) # (unit_id before, unit_id after)
-        unit_id = int(matched_ids[0] + sel_ci[session_id - 1])
-        if sel_units is not None and unit_id not in sel_units:
-            sel_prob[unit_id, :] = 0
-            continue
-        unit_paths[u, session_id - 1] = unit_id
-        while session_id < (len(sel_ci) - 1):
-            unit_prob = sel_prob[unit_id, sel_ci[session_id] : sel_ci[session_id + 1]].copy()
-            # We prevent the same unit from being matched twice
-            sel_prob[unit_id, :] = 0
+#     sel_prob = max_prob[sel_ci[0]:sel_ci[-1], sel_ci[0]:sel_ci[-1]].copy()
+#     unit_probs = np.zeros((sel_ci[1], len(sel_ci) - 2)) - 1
+#     unit_paths = np.zeros((sel_ci[1], len(sel_ci) - 1),dtype=int) - 1
+#     for u in range(sel_ci[1]):
+#         session_id = 1 # session ID to be matched (session_id - 1, session_id)
+#         session_prob = sel_prob[(sel_ci[session_id - 1]): sel_ci[session_id], sel_ci[session_id] : sel_ci[session_id + 1]]
+#         # We essentially sort the units by the maximum probability of matching
+#         matched_ids = np.unravel_index(np.argmax(session_prob), session_prob.shape) # (unit_id before, unit_id after)
+#         unit_id = int(matched_ids[0] + sel_ci[session_id - 1])
+#         if sel_units is not None and unit_id not in sel_units:
+#             sel_prob[unit_id, :] = 0
+#             continue
+#         unit_paths[u, session_id - 1] = unit_id
+#         while session_id < (len(sel_ci) - 1):
+#             unit_prob = sel_prob[unit_id, sel_ci[session_id] : sel_ci[session_id + 1]].copy()
+#             # We prevent the same unit from being matched twice
+#             sel_prob[unit_id, :] = 0
             
-            if unit_prob.max() < th:
-                break
-            unit_id = int(np.argmax(unit_prob) + sel_ci[session_id])
-            unit_probs[u, session_id - 1] = unit_prob.max()
-            unit_paths[u, session_id] = unit_id
-            session_id += 1
+#             if unit_prob.max() < th:
+#                 break
+#             unit_id = int(np.argmax(unit_prob) + sel_ci[session_id])
+#             unit_probs[u, session_id - 1] = unit_prob.max()
+#             unit_paths[u, session_id] = unit_id
+#             session_id += 1
 
-    return unit_probs, unit_paths
+#     return unit_probs, unit_paths
 
 
 def infer_match_threshold(unit_probs, n_misses = 1):
@@ -433,7 +434,7 @@ def threshold_matches(unit_probs, unit_paths, threshold, n_misses = 1):
     return unit_probs, unit_paths
 
 
-def match_across_session(score_matrix, clus_info, min_th=0.5, n_misses = 1, sel_units = None):
+def match_across_session(score_matrix, sel_idx, min_th=0.5, n_misses = 1, sel_units = None):
     """
     Match units across sessions.
 
@@ -445,20 +446,20 @@ def match_across_session(score_matrix, clus_info, min_th=0.5, n_misses = 1, sel_
         unit_probs - ndarray (nUnits, nSessions)
         unit_paths - ndarray (nUnits, nSessions)
     """
-    unit_probs, unit_paths = find_best_matches_across_sessions(score_matrix, clus_info, min_th, sel_units)
-    threshold = infer_match_threshold(unit_probs, n_misses)
-    unit_probs, unit_paths = threshold_matches(unit_probs, unit_paths, threshold, n_misses)
+    unit_probs, unit_paths = find_best_matches_across_sessions(score_matrix, sel_idx, min_th, sel_units)
+    if unit_probs.shape[0] > 0:
+        threshold = infer_match_threshold(unit_probs, n_misses)
+        unit_probs, unit_paths = threshold_matches(unit_probs, unit_paths, threshold, n_misses)
 
-    print(
-        f"Threshold for matching units: {threshold}, Number of matched units: {unit_probs.shape[0]}"
-    )
+        print(
+            f"Threshold for matching units: {threshold}, Number of matched units: {unit_probs.shape[0]}"
+        )
+    else:
+        print('No matches found. Consider lowering the threshold.')
 
     return unit_probs, unit_paths
    
-
-def convert_unit_ids(unit_ids, session_switch, new_session_switch):
-    return
-
+   
 def identify_session(unit_id, session_switch):
     """
     Identify the session of a unit.
@@ -541,3 +542,136 @@ def save_score_matrix(score_matrix, clus_info, param):
     with open(save_file, "wb") as f:
         pickle.dump((score_matrix, clus_info, param), f)
     print(f"Score matrix saved to {save_file}")
+    
+def make_score_container(score_matrix, session_switch):
+    n_sessions = session_switch.shape[0] - 1
+    score_container = np.empty((n_sessions, n_sessions),dtype=object)
+    for i in range(n_sessions):
+        for j in range(n_sessions):
+            score_container[i,j] = score_matrix[
+                session_switch[i]:session_switch[i+1],
+                session_switch[j]:session_switch[j+1]
+                ]
+    return score_container
+
+
+def find_best_matches_across_sessions(score_container, sel_idx, min_th=0.8, sel_units=None):
+    copy_score = copy.deepcopy(score_container)
+    i = 0
+    unit_paths, unit_probs = np.array([]), np.array([])
+    #Check if good matches are left
+    while np.max(copy_score[sel_idx[0],sel_idx[1]]) > min_th:
+        unit_ids, unit_prob =  [], []
+    
+        for s in range(sel_idx.shape[0] - 1):
+            sel_score = copy_score[sel_idx[s],sel_idx[s+1]]
+            if s == 0:
+                matched_ids = list(np.array(np.unravel_index(np.argmax(sel_score), sel_score.shape)).astype("int"))
+                new_id = matched_ids[1]
+                if sel_units is not None and matched_ids[0] not in sel_units:
+                    sel_score[matched_ids[0], :] = 0
+                    break
+                else:
+                    unit_ids += matched_ids #If first match, add both IDs
+                    sel_score[matched_ids[0], :] = 0
+            else:
+                unit_score = sel_score[new_id,:]
+                if np.max(unit_score) < min_th:
+                    sel_score[new_id,:] = 0
+                    unit_ids = []
+                    unit_prob = []
+                    break
+                old_id = copy.deepcopy(new_id)
+                new_id = int(np.argmax(unit_score))
+                
+                unit_ids.append(new_id) #After that only the second one
+                unit_prob.append(unit_score[new_id])
+                sel_score[old_id,:] = 0
+        if len(unit_ids) > 0:
+            if i == 0:
+                unit_paths = np.array(unit_ids)
+                unit_probs = np.array(unit_prob)
+                i+=1
+            else:
+                unit_paths = np.vstack([unit_paths,np.array(unit_ids)])
+                unit_probs = np.vstack([unit_probs,np.array(unit_prob)])
+            
+            
+    return unit_probs, unit_paths
+
+
+def kcl_match(score_container, sel_idx_list):
+    unit_probs, unit_paths = match_across_session(
+        score_container,
+        sel_idx_list[0],
+        min_th = 0.9,
+        n_misses = 0
+        )
+
+    full_paths = np.zeros((unit_paths.shape[0], score_container.shape[1]), dtype = int) - 1
+    # full_probs = np.zeros((unit_paths.shape[0], score_container.shape[1]), dtype = int) - 1
+
+    full_paths[:,sel_idx_list[0]] = unit_paths
+    # full_probs[:,sel_idx_list[0]] = unit_probs
+
+    sel_units = full_paths[:,sel_idx_list[0][0]]
+
+    unit_probs, unit_paths = match_across_session(
+        score_container, 
+        sel_idx_list[1], 
+        min_th = 0.5, 
+        n_misses = 0, 
+        sel_units= sel_units)
+
+    for idx, u in enumerate(unit_paths[:,0]):
+        sel_path = np.argwhere(sel_units == u)[0][0]
+        full_paths[sel_path,sel_idx_list[1]] = unit_paths[idx,:]
+        # full_probs[sel_path,sel_idx_list[1]] = unit_probs[idx,:]
+        
+    sel_units = full_paths[:,sel_idx_list[2][0]]
+
+    unit_probs, unit_paths = match_across_session(
+        score_container, 
+        sel_idx_list[2], 
+        min_th = 0.8, 
+        n_misses = 0, 
+        sel_units=sel_units
+        )
+
+    for idx, u in enumerate(unit_paths[:,0]):
+        sel_path = np.argwhere(sel_units == u)[0][0]
+        full_paths[sel_path,sel_idx_list[2]] = unit_paths[idx,:]
+        # full_probs[sel_path,sel_idx_list[2]] = unit_probs[idx,:]
+        
+    return full_paths
+
+def save_matched_sortings(path_list, full_paths):
+    
+    parts = Path(path_list[0]).parts
+    save_path = Path(os.path.join(*parts[:-3], "UM_data", parts[-2]))
+    
+    recordings, sortings = load_objects(path_list)
+    assert(len(sortings) ==  full_paths.shape[1])
+
+    matched_sortings = []
+    sorting_analyzer = []
+    for i, s in enumerate(sortings):
+        sel_unit_ids = select_good_units(s).get_unit_ids()[full_paths[:,i]]
+        new_unit_ids = np.argwhere(full_paths[:,i] >= 0).squeeze()
+        sel_unit_ids = sel_unit_ids[new_unit_ids]
+        matched_sortings.append(s.select_units(sel_unit_ids, renamed_unit_ids=new_unit_ids))
+        
+        sorting_analyzer.append(si.create_sorting_analyzer(
+            sorting=matched_sortings[i], 
+            recording=si.highpass_filter(recordings[i]))
+        )
+        sorting_analyzer[i].compute(['random_spikes', 'waveforms', 'templates','spike_amplitudes'])
+        
+        
+    for i, s in enumerate(sorting_analyzer):
+        new_sorting_folder = save_path.joinpath(path_list[i].parts[-3])
+        si.export_to_phy(s,
+                        output_folder=new_sorting_folder, 
+                        copy_binary=False, 
+                        compute_pc_features=False,
+                        remove_if_exists=True)
